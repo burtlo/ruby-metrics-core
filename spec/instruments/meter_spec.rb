@@ -1,0 +1,136 @@
+require 'spec_helper'
+require 'timecop'
+
+describe Metrics::Instruments::Meter do
+  before(:each) do
+    Thread.stub!(:new).and_return do |block|
+      # Do nothing
+    end
+  end
+
+  it "should initialize averages to 0" do 
+    meter = Metrics::Instruments::Meter.new
+    meter.one_minute_rate.should == 0.0
+    meter.five_minute_rate.should == 0.0
+    meter.fifteen_minute_rate.should == 0.0
+  end
+  
+  it "should increment count" do
+    meter = Metrics::Instruments::Meter.new
+    meter.mark(500)
+    meter.counted.should == 500
+  end
+  
+  it "should accept options for the constructor" do
+    meter = Metrics::Instruments::Meter.new
+  end
+  
+  context "A timer with an initial mark of 3 at a 1 second rate unit on a 5 second interval" do
+    
+    before(:each) do
+      @start_time = Time.local(2014, 1, 1, 12, 0, 0)
+      Timecop.freeze(@start_time)
+      @meter = Metrics::Instruments::Meter.new
+      @meter.mark(3)
+      @meter.tick()
+    end
+
+    after(:each) do
+      Timecop.return
+    end
+
+    def tick_for(seconds)
+      count = ((seconds) / 5).to_i
+      (1..count).each do
+        @meter.tick()
+      end
+    end
+
+    context 'When computing mean rate' do
+      it 'should have a mean rate of 3/sec one second in' do
+        @meter.mark(3)
+        Timecop.freeze(Time.now + 1) do
+          @meter.mean_rate.should == 3
+        end
+      end
+
+      it 'should have a mean rate of 0.003/msec one second in' do
+        @meter.mark(3)
+        Timecop.freeze(Time.now + 1) do
+          @meter.mean_rate(:milliseconds).should == 0.003
+        end
+      end
+
+      it 'should have a rate of 180/minute one second in' do
+        @meter.mark(3)
+        Timecop.freeze(Time.now + 1) do
+          @meter.mean_rate(:minutes).should == 180
+        end
+      end
+
+      it 'should have a rate of 10800/hour one second in' do
+        @meter.mark(3)
+        Timecop.freeze(Time.now + 1) do
+          @meter.mean_rate(:hours).should == 10800
+        end
+      end
+    end
+
+    context "For a 1 minute window" do
+      it "should have a rate of 0.6 events/sec after the first tick" do
+        @meter.one_minute_rate.should == 0.6
+      end
+
+      it "should have a rate of 0.22072766470286553 events/sec after 1 minute" do
+        tick_for(60)
+        @meter.one_minute_rate.should == 0.22072766470286553
+      end
+    end
+    
+    context "For a 5 minute window" do
+      it "should have a rate of 0.6 events/sec after the first tick" do
+        @meter.five_minute_rate.should == 0.6
+      end
+    
+      it "should have a rate of 0.49123845184678905 events/sec after 1 minute" do
+        tick_for(60)
+        @meter.five_minute_rate.should == 0.49123845184678905
+      end
+    end
+    
+    context "For a 15 minute window" do
+      it "should have a rate of 0.6 events/sec after the first tick" do
+        @meter.fifteen_minute_rate.should == 0.6
+      end
+      
+      it "should have a rate of 36.0 events per minute after the first tick" do
+        @meter.fifteen_minute_rate(:minutes).should == 36.0
+      end
+      
+      it "should have a rate of 2160.0 events per hour after the first tick" do 
+        @meter.fifteen_minute_rate(:hours).should == 2160.0
+      end
+
+      it "should have a rate of 0.5613041910189706 events/sec after 1 minute" do
+        tick_for(60)
+        @meter.fifteen_minute_rate.should == 0.5613041910189706
+      end      
+    end
+  
+  end
+  
+  context "to_json" do
+    before(:each) do
+      @meter  = Metrics::Instruments::Meter.new
+      @hash   = JSON.parse(@meter.to_json)
+    end
+    
+    %w( one_minute_rate five_minute_rate fifteen_minute_rate ).each do |attr|
+      it "should serialize with the #{attr} value" do
+        @hash[attr].should_not be_nil
+      end
+    end
+    
+  end
+  
+end
